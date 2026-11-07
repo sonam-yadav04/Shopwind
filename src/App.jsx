@@ -3,10 +3,11 @@ import "./App.css";
 
 const PRODUCTS_URL = "https://dummyjson.com/products?limit=24";
 const REQUEST_TIMEOUT_MS = 10_000;
+const CART_STORAGE_KEY = "shopsphere-cart-v1";
 
 const offlineProducts = [
   {
-    id: 1,
+    id: "offline-1",
     title: "Soundwave Wireless Headphones",
     price: 79.99,
     category: "Tech",
@@ -14,7 +15,7 @@ const offlineProducts = [
     thumbnail: "",
   },
   {
-    id: 2,
+    id: "offline-2",
     title: "Everyday Insulated Tumbler",
     price: 34.5,
     category: "Home",
@@ -22,7 +23,7 @@ const offlineProducts = [
     thumbnail: "",
   },
   {
-    id: 3,
+    id: "offline-3",
     title: "Weekend Trail Backpack",
     price: 129,
     category: "Outdoors",
@@ -30,7 +31,7 @@ const offlineProducts = [
     thumbnail: "",
   },
   {
-    id: 4,
+    id: "offline-4",
     title: "Desk Glow Table Lamp",
     price: 58,
     category: "Home",
@@ -38,7 +39,7 @@ const offlineProducts = [
     thumbnail: "",
   },
   {
-    id: 5,
+    id: "offline-5",
     title: "Pocket Notes Set of Three",
     price: 24.99,
     category: "Workspace",
@@ -46,7 +47,7 @@ const offlineProducts = [
     thumbnail: "",
   },
   {
-    id: 6,
+    id: "offline-6",
     title: "Coastline Mini Speaker",
     price: 89.95,
     category: "Tech",
@@ -54,7 +55,7 @@ const offlineProducts = [
     thumbnail: "",
   },
   {
-    id: 7,
+    id: "offline-7",
     title: "Field Day Water Bottle",
     price: 42,
     category: "Outdoors",
@@ -62,7 +63,7 @@ const offlineProducts = [
     thumbnail: "",
   },
   {
-    id: 8,
+    id: "offline-8",
     title: "Arcwood Monitor Stand",
     price: 149,
     category: "Workspace",
@@ -116,6 +117,150 @@ const formatPrice = (price) =>
     currency: "USD",
   }).format(price);
 
+function isValidCartEntry(entry) {
+  return (
+    entry &&
+    typeof entry === "object" &&
+    ((Number.isInteger(entry.id) && entry.id > 0) ||
+      (typeof entry.id === "string" && Boolean(entry.id.trim()))) &&
+    typeof entry.title === "string" &&
+    Boolean(entry.title.trim()) &&
+    typeof entry.price === "number" &&
+    Number.isFinite(entry.price) &&
+    entry.price >= 0 &&
+    Number.isSafeInteger(entry.quantity) &&
+    entry.quantity > 0
+  );
+}
+
+function loadCartState() {
+  try {
+    const savedCart = window.localStorage.getItem(CART_STORAGE_KEY);
+    if (savedCart === null) {
+      return { entries: [], persistenceAvailable: true, notice: "" };
+    }
+
+    let entries;
+    try {
+      entries = JSON.parse(savedCart);
+    } catch {
+      return {
+        entries: [],
+        persistenceAvailable: true,
+        notice: "Saved cart data was invalid, so the cart started empty.",
+      };
+    }
+
+    const hasUniqueIds =
+      Array.isArray(entries) &&
+      new Set(entries.map((entry) => entry?.id)).size === entries.length;
+    if (
+      !Array.isArray(entries) ||
+      !entries.every(isValidCartEntry) ||
+      !hasUniqueIds
+    ) {
+      return {
+        entries: [],
+        persistenceAvailable: true,
+        notice: "Saved cart data was invalid, so the cart started empty.",
+      };
+    }
+
+    return { entries, persistenceAvailable: true, notice: "" };
+  } catch {
+    return {
+      entries: [],
+      persistenceAvailable: false,
+      notice:
+        "Saved cart storage is unavailable. Cart changes stay in this session.",
+    };
+  }
+}
+
+export function addCartItem(entries, product) {
+  const existing = entries.find((entry) => entry.id === product.id);
+  if (!existing) {
+    return [
+      ...entries,
+      {
+        id: product.id,
+        title: product.title,
+        price: product.price,
+        quantity: 1,
+      },
+    ];
+  }
+
+  if (!Number.isSafeInteger(existing.quantity + 1)) {
+    return entries;
+  }
+
+  return entries.map((entry) =>
+    entry.id === product.id
+      ? { ...entry, quantity: entry.quantity + 1 }
+      : entry,
+  );
+}
+
+export function changeCartQuantity(entries, productId, change) {
+  return entries.flatMap((entry) => {
+    if (entry.id !== productId) {
+      return [entry];
+    }
+    const quantity = entry.quantity + change;
+    return Number.isSafeInteger(quantity) && quantity > 0
+      ? [{ ...entry, quantity }]
+      : [];
+  });
+}
+
+export function getCartSummary(entries) {
+  return entries.reduce(
+    (summary, entry) => ({
+      itemCount: summary.itemCount + entry.quantity,
+      subtotalCents:
+        summary.subtotalCents + Math.round(entry.price * 100) * entry.quantity,
+    }),
+    { itemCount: 0, subtotalCents: 0 },
+  );
+}
+
+export function getVisibleProducts(
+  products,
+  searchQuery,
+  selectedCategory,
+  sortOrder,
+) {
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const compareIds = (first, second) =>
+    typeof first === "number" && typeof second === "number"
+      ? first - second
+      : String(first).localeCompare(String(second), undefined, {
+          numeric: true,
+        });
+
+  return products
+    .filter((product) => {
+      const matchesTitle = product.title.toLowerCase().includes(normalizedQuery);
+      const matchesCategory =
+        selectedCategory === "all" ||
+        product.category.toLowerCase() === selectedCategory.toLowerCase();
+      return matchesTitle && matchesCategory;
+    })
+    .sort((first, second) => {
+      if (sortOrder === "price-asc") {
+        return first.price - second.price || compareIds(first.id, second.id);
+      }
+      if (sortOrder === "price-desc") {
+        return second.price - first.price || compareIds(first.id, second.id);
+      }
+      if (sortOrder === "rating-desc") {
+        return second.rating - first.rating || compareIds(first.id, second.id);
+      }
+      return 0;
+    });
+}
+
 function ProductImage({ product }) {
   const [failed, setFailed] = useState(!product.thumbnail);
 
@@ -148,7 +293,7 @@ function ProductImage({ product }) {
   );
 }
 
-function ProductCard({ product }) {
+function ProductCard({ product, onAddToCart }) {
   return (
     <article className="product-card">
       <ProductImage product={product} />
@@ -167,8 +312,8 @@ function ProductCard({ product }) {
         <button
           className="product-card__button"
           type="button"
-          disabled
-          aria-describedby="controls-note"
+          onClick={() => onAddToCart(product)}
+          aria-label={`Add ${product.title} to cart`}
         >
           Add to cart
         </button>
@@ -198,8 +343,34 @@ function App() {
   const [errorMessage, setErrorMessage] = useState("");
   const [dataSource, setDataSource] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [sortOrder, setSortOrder] = useState("featured");
+  const [cartState, setCartState] = useState(loadCartState);
   const requestIdRef = useRef(0);
   const requestActiveRef = useRef(false);
+
+  const cart = cartState.entries;
+
+  useEffect(() => {
+    if (!cartState.persistenceAvailable) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        CART_STORAGE_KEY,
+        JSON.stringify(cartState.entries),
+      );
+    } catch {
+      setCartState((current) => ({
+        ...current,
+        persistenceAvailable: false,
+        notice:
+          "Cart storage is unavailable. Cart changes stay in this session.",
+      }));
+    }
+  }, [cartState]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -296,12 +467,50 @@ function App() {
     setStatus("success");
   }
 
+  function addToCart(product) {
+    setCartState((current) => ({
+      ...current,
+      entries: addCartItem(current.entries, product),
+    }));
+  }
+
+  function changeQuantity(productId, change) {
+    setCartState((current) => ({
+      ...current,
+      entries: changeCartQuantity(current.entries, productId, change),
+    }));
+  }
+
+  function removeFromCart(productId) {
+    setCartState((current) => ({
+      ...current,
+      entries: current.entries.filter((entry) => entry.id !== productId),
+    }));
+  }
+
+  function clearCart() {
+    setCartState((current) => ({ ...current, entries: [] }));
+  }
+
+  const categories = [...new Set(products.map((product) => product.category))].sort(
+    (first, second) => first.localeCompare(second),
+  );
+  const visibleProducts = getVisibleProducts(
+    products,
+    searchQuery,
+    selectedCategory,
+    sortOrder,
+  );
   const averagePrice =
-    products.reduce((total, product) => total + product.price, 0) /
-    (products.length || 1);
+    visibleProducts.reduce((total, product) => total + product.price, 0) /
+    (visibleProducts.length || 1);
   const averageRating =
-    products.reduce((total, product) => total + product.rating, 0) /
-    (products.length || 1);
+    visibleProducts.reduce((total, product) => total + product.rating, 0) /
+    (visibleProducts.length || 1);
+  const cartSummary = getCartSummary(cart);
+  const hasActiveFilters =
+    searchQuery !== "" || selectedCategory !== "all" || sortOrder !== "featured";
+  const canDiscover = status === "success" && products.length > 0;
   const statusLabel =
     dataSource === "offline"
       ? "Offline sample"
@@ -319,32 +528,19 @@ function App() {
             S
           </span>
           <span className="brand__name">
-            Shop<span>Sphere</span>
+            Web<span>Shop</span>
           </span>
         </a>
         <div className="site-header__tools">
-          <label className="search-field">
-            <span className="search-field__icon" aria-hidden="true">
-              ⌕
-            </span>
-            <span className="visually-hidden">Search products</span>
-            <input
-              type="search"
-              placeholder="Search products"
-              disabled
-              aria-describedby="controls-note"
-            />
-          </label>
-          <button
+          <a
             className="cart-button"
-            type="button"
-            disabled
-            aria-describedby="controls-note"
+            href="#shopping-cart"
+            aria-label={`Cart, ${cartSummary.itemCount} items`}
           >
             <span aria-hidden="true">♧</span>
             <span>Cart</span>
-            <span className="cart-button__count">0</span>
-          </button>
+            <span className="cart-button__count">{cartSummary.itemCount}</span>
+          </a>
         </div>
       </header>
 
@@ -382,24 +578,24 @@ function App() {
 
       <section className="summary" aria-label="Product summary">
         <SummaryCard
-          label="In this collection"
-          value={products.length}
+          label="Visible products"
+          value={visibleProducts.length}
           detail={
             dataSource === "offline"
-              ? "offline sample products"
-              : "products in this loaded subset"
+              ? `of ${products.length} offline samples`
+              : `of ${products.length} loaded products`
           }
           icon="◫"
         />
         <SummaryCard
           label="Average price"
-          value={products.length ? formatPrice(averagePrice) : "—"}
+          value={visibleProducts.length ? formatPrice(averagePrice) : "--"}
           detail="demo pricing in USD"
           icon="$"
         />
         <SummaryCard
           label="Average rating"
-          value={products.length ? averageRating.toFixed(2) : "—"}
+          value={visibleProducts.length ? averageRating.toFixed(2) : "--"}
           detail="out of 5.0 stars"
           icon="★"
         />
@@ -412,27 +608,69 @@ function App() {
             <h2>Find your next favorite</h2>
           </div>
           <p className="discovery__count">
-            Showing <strong>{products.length}</strong> loaded products
+            Showing <strong>{visibleProducts.length}</strong> of{" "}
+            <strong>{products.length}</strong> loaded products
           </p>
         </div>
         <div className="discovery__controls">
           <label>
-            Category
-            <select disabled aria-describedby="controls-note" defaultValue="all">
+            Search loaded products by title
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search loaded titles"
+              disabled={!canDiscover}
+              aria-describedby="controls-note"
+            />
+          </label>
+          <label>
+            Category in loaded products
+            <select
+              value={selectedCategory}
+              onChange={(event) => setSelectedCategory(event.target.value)}
+              disabled={!canDiscover}
+              aria-describedby="controls-note"
+            >
               <option value="all">All categories</option>
+              {categories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
             </select>
           </label>
           <label>
-            Sort by
-            <select disabled aria-describedby="controls-note" defaultValue="featured">
+            Sort loaded products
+            <select
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value)}
+              disabled={!canDiscover}
+              aria-describedby="controls-note"
+            >
               <option value="featured">Featured</option>
+              <option value="price-asc">Price: low to high</option>
+              <option value="price-desc">Price: high to low</option>
+              <option value="rating-desc">Rating: high to low</option>
             </select>
           </label>
+          <button
+            className="discovery__clear"
+            type="button"
+            onClick={() => {
+              setSearchQuery("");
+              setSelectedCategory("all");
+              setSortOrder("featured");
+            }}
+            disabled={!hasActiveFilters}
+          >
+            Clear filters
+          </button>
         </div>
         <p className="controls-note" id="controls-note">
-          Search, filters, sorting, and cart are disabled in this preview.
-          Prices are demo values in USD; this page shows only the loaded subset,
-          not the full catalog.
+          Search and filters apply only to the products currently loaded here,
+          not the full catalog. Prices are demo values in USD. Cart is disabled
+          in this preview.
         </p>
       </section>
 
@@ -472,10 +710,20 @@ function App() {
                 data.
               </p>
             )}
-            {products.length > 0 && (
+            {products.length > 0 && visibleProducts.length === 0 && (
+              <div className="products-message" role="status" aria-live="polite">
+                No loaded products match these filters. Clear filters to see all
+                loaded products.
+              </div>
+            )}
+            {visibleProducts.length > 0 && (
               <div className="product-grid">
-                {products.map((product) => (
-                  <ProductCard key={product.id} product={product} />
+                {visibleProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onAddToCart={addToCart}
+                  />
                 ))}
               </div>
             )}
@@ -483,8 +731,98 @@ function App() {
         )}
       </section>
 
+      <section
+        className="cart-panel"
+        id="shopping-cart"
+        aria-labelledby="cart-title"
+      >
+        <div className="cart-panel__heading">
+          <div>
+            <p className="eyebrow">Your selection</p>
+            <h2 id="cart-title">Shopping cart</h2>
+          </div>
+          <button
+            className="cart-panel__clear"
+            type="button"
+            onClick={clearCart}
+            disabled={cart.length === 0}
+          >
+            Clear cart
+          </button>
+        </div>
+        {cartState.notice && (
+          <p className="cart-panel__notice" role="status">
+            {cartState.notice}
+          </p>
+        )}
+        {cart.length === 0 ? (
+          <p className="cart-panel__empty" role="status">
+            Your cart is empty. Add a product to get started.
+          </p>
+        ) : (
+          <ul className="cart-list">
+            {cart.map((entry) => (
+              <li className="cart-item" key={entry.id}>
+                <div className="cart-item__details">
+                  <h3>{entry.title}</h3>
+                  <p>{formatPrice(entry.price)} each</p>
+                </div>
+                <div className="cart-item__actions">
+                  <div
+                    className="quantity-control"
+                    role="group"
+                    aria-label={`Quantity for ${entry.title}`}
+                  >
+                    <button
+                      type="button"
+                      aria-label={`Decrease quantity of ${entry.title}`}
+                      onClick={() => changeQuantity(entry.id, -1)}
+                    >
+                      −
+                    </button>
+                    <output aria-live="polite">{entry.quantity}</output>
+                    <button
+                      type="button"
+                      aria-label={`Increase quantity of ${entry.title}`}
+                      onClick={() => changeQuantity(entry.id, 1)}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <button
+                    className="cart-item__remove"
+                    type="button"
+                    onClick={() => removeFromCart(entry.id)}
+                    aria-label={`Remove ${entry.title} from cart`}
+                  >
+                    Remove
+                  </button>
+                </div>
+                <strong className="cart-item__total">
+                  {formatPrice(
+                    (Math.round(entry.price * 100) * entry.quantity) / 100,
+                  )}
+                </strong>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="cart-panel__subtotal">
+          <span>
+            Subtotal{" "}
+            <span className="cart-panel__item-count">
+              ({cartSummary.itemCount} items)
+            </span>
+          </span>
+          <strong>{formatPrice(cartSummary.subtotalCents / 100)}</strong>
+        </div>
+        <p className="cart-panel__disclaimer">
+          Demo subtotal only. No orders, payments, tax, shipping, or checkout.
+        </p>
+      </section>
+
       <footer className="site-footer">
-        <span>ShopSphere</span>
+        <span>WebShop</span>
         <span>Made for finding your kind of everyday.</span>
       </footer>
     </main>
