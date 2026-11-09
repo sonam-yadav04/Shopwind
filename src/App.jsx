@@ -603,6 +603,11 @@ function App() {
 
       <section className="discovery" aria-label="Product discovery controls">
         <div className="discovery__heading">
+          
+      <header className="site-footer">
+        <span>WebShop</span>
+        <span>Made for finding your kind of everyday.</span>
+        </header>
           <div>
             <p className="eyebrow">The good stuff</p>
             <h2>Find your next favorite</h2>
